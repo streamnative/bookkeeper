@@ -874,6 +874,12 @@
       </plugin>
     </plugins>
   </build>
+  <distributionManagement>
+    <repository>
+      <id>bintray-repo-maven</id>
+      <url>https://api.bintray.com/maven/streamlio/maven/bookkeeper/;publish=1</url>
+    </repository>
+  </distributionManagement>
   <profiles>
     <profile>
       <!-- profile used by jenkins CI -->
