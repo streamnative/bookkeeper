@@ -28,6 +28,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.apache.bookkeeper.bookie.CheckpointSource.Checkpoint;
+import org.apache.bookkeeper.common.util.Watcher;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.LedgerManager;
 import org.apache.bookkeeper.proto.BookieProtocol;
@@ -163,6 +164,26 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage
         }
         // buffToRet will not be null when we reach here.
         return buffToRet;
+    }
+
+    @Override
+    public long getLastAddConfirmed(long ledgerId) throws IOException {
+        return ledgerCache.getLastAddConfirmed(ledgerId);
+    }
+
+    @Override
+    public boolean waitForLastAddConfirmedUpdate(long ledgerId,
+                                                 long previousLAC,
+                                                 Watcher<LastAddConfirmedUpdateNotification> watcher)
+            throws IOException {
+        return ledgerCache.waitForLastAddConfirmedUpdate(ledgerId, previousLAC, watcher);
+    }
+
+    @Override
+    public void cancelWaitForLastAddConfirmedUpdate(long ledgerId,
+                                                    Watcher<LastAddConfirmedUpdateNotification> watcher)
+            throws IOException {
+        ledgerCache.cancelWaitForLastAddConfirmedUpdate(ledgerId, watcher);
     }
 
     @Override

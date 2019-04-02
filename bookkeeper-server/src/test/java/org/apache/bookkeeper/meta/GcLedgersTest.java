@@ -605,6 +605,11 @@ public class GcLedgersTest extends LedgerManagerTestCase {
         }
 
         @Override
+        public void cancelWaitForLastAddConfirmedUpdate(long ledgerId,
+                Watcher<LastAddConfirmedUpdateNotification> watcher) throws IOException {
+        }
+
+        @Override
         public long getLastAddConfirmed(long ledgerId) throws IOException {
             return 0;
         }

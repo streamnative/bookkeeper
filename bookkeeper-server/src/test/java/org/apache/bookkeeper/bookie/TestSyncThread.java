@@ -282,6 +282,11 @@ public class TestSyncThread {
         }
 
         @Override
+        public void cancelWaitForLastAddConfirmedUpdate(long ledgerId,
+                Watcher<LastAddConfirmedUpdateNotification> watcher) throws IOException {
+        }
+
+        @Override
         public void start() {
         }
 

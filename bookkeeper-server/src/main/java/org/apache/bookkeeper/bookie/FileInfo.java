@@ -140,6 +140,10 @@ class FileInfo extends Watchable<LastAddConfirmedUpdateNotification> {
         return true;
     }
 
+    synchronized void cancelWaitForLastAddConfirmedUpdate(Watcher<LastAddConfirmedUpdateNotification> watcher) {
+        deleteWatcher(watcher);
+    }
+
     public boolean isClosed() {
         return isClosed;
     }
