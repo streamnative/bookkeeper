@@ -141,6 +141,8 @@ public class Bookie extends BookieCriticalThread {
 
     private final ByteBufAllocator allocator;
 
+    private final boolean writeDataToJournal;
+
     /**
      * Exception is thrown when no such a ledger is found in this bookie.
      */
@@ -681,6 +683,7 @@ public class Bookie extends BookieCriticalThread {
         this.ledgerDirsManager = createLedgerDirsManager(conf, diskChecker, statsLogger.scope(LD_LEDGER_SCOPE));
         this.indexDirsManager = createIndexDirsManager(conf, diskChecker, statsLogger.scope(LD_INDEX_SCOPE),
                                                        this.ledgerDirsManager);
+        this.writeDataToJournal = conf.getJournalWriteData();
         this.allocator = allocator;
 
         // instantiate zookeeper client to initialize ledger manager
@@ -1264,6 +1267,11 @@ public class Bookie extends BookieCriticalThread {
 
                 getJournal(ledgerId).logAddEntry(bb, false /* ackBeforeSync */, new NopWriteCallback(), null);
             }
+        }
+
+        if (!writeDataToJournal) {
+            cb.writeComplete(0, ledgerId, entryId, null, ctx);
+            return;
         }
 
         if (LOG.isTraceEnabled()) {
