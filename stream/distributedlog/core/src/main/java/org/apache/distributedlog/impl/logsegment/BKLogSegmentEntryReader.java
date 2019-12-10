@@ -17,8 +17,6 @@
  */
 package org.apache.distributedlog.impl.logsegment;
 
-import static com.google.common.base.Charsets.UTF_8;
-
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import java.io.IOException;
@@ -35,7 +33,6 @@ import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import org.apache.bookkeeper.client.AsyncCallback;
 import org.apache.bookkeeper.client.BKException;
-import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.common.concurrent.FutureUtils;
@@ -43,6 +40,7 @@ import org.apache.bookkeeper.common.util.OrderedScheduler;
 import org.apache.bookkeeper.common.util.SafeRunnable;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.distributedlog.BookKeeperClient;
 import org.apache.distributedlog.DistributedLogConfiguration;
 import org.apache.distributedlog.Entry;
 import org.apache.distributedlog.LogSegmentMetadata;
@@ -59,7 +57,7 @@ import org.slf4j.LoggerFactory;
 /**
  * BookKeeper ledger based log segment entry reader.
  */
-public class BKLogSegmentEntryReader implements SafeRunnable, LogSegmentEntryReader, AsyncCallback.OpenCallback {
+public class BKLogSegmentEntryReader implements SafeRunnable, LogSegmentEntryReader {
 
     private static final Logger logger = LoggerFactory.getLogger(BKLogSegmentEntryReader.class);
 
@@ -285,7 +283,7 @@ public class BKLogSegmentEntryReader implements SafeRunnable, LogSegmentEntryRea
         }
     }
 
-    private final BookKeeper bk;
+    private final BookKeeperClient bkc;
     private final DistributedLogConfiguration conf;
     private final OrderedScheduler scheduler;
     private final long lssn;
@@ -332,7 +330,7 @@ public class BKLogSegmentEntryReader implements SafeRunnable, LogSegmentEntryRea
     BKLogSegmentEntryReader(LogSegmentMetadata metadata,
                             LedgerHandle lh,
                             long startEntryId,
-                            BookKeeper bk,
+                            BookKeeperClient bkc,
                             OrderedScheduler scheduler,
                             DistributedLogConfiguration conf,
                             StatsLogger statsLogger,
@@ -344,7 +342,7 @@ public class BKLogSegmentEntryReader implements SafeRunnable, LogSegmentEntryRea
         this.deserializeRecordSet = conf.getDeserializeRecordSetOnReads();
         this.lh = lh;
         this.nextEntryId = Math.max(startEntryId, 0);
-        this.bk = bk;
+        this.bkc = bkc;
         this.conf = conf;
         this.numPrefetchEntries = conf.getNumPrefetchEntriesPerLogSegment();
         this.maxPrefetchEntries = conf.getMaxPrefetchEntriesPerLogSegment();
@@ -432,22 +430,17 @@ public class BKLogSegmentEntryReader implements SafeRunnable, LogSegmentEntryRea
             return;
         }
         // segment is closed from inprogress, then re-open the log segment
-        bk.asyncOpenLedger(
-                segment.getLogSegmentId(),
-                BookKeeper.DigestType.CRC32,
-                conf.getBKDigestPW().getBytes(UTF_8),
-                this,
-                segment);
+        bkc.openLedger(segment.getLogSegmentId())
+            .whenComplete((ledger, exception) -> {
+                    if (exception != null) {
+                        failOrRetryOpenLedger(exception, segment);
+                    } else {
+                        handleSegmentOpened(ledger, segment);
+                    }
+                });
     }
 
-    @Override
-    public void openComplete(int rc, LedgerHandle lh, Object ctx) {
-        LogSegmentMetadata segment = (LogSegmentMetadata) ctx;
-        if (BKException.Code.OK != rc) {
-            // fail current reader or retry opening the reader
-            failOrRetryOpenLedger(rc, segment);
-            return;
-        }
+    private void handleSegmentOpened(LedgerHandle lh, LogSegmentMetadata segment) {
         // switch to new ledger handle if the log segment is moved to completed.
         CacheEntry longPollRead = null;
         synchronized (this) {
@@ -474,7 +467,7 @@ public class BKLogSegmentEntryReader implements SafeRunnable, LogSegmentEntryRea
         notifyReaders();
     }
 
-    private void failOrRetryOpenLedger(int rc, final LogSegmentMetadata segment) {
+    private void failOrRetryOpenLedger(Throwable ex, final LogSegmentMetadata segment) {
         if (isClosed()) {
             return;
         }
@@ -482,7 +475,7 @@ public class BKLogSegmentEntryReader implements SafeRunnable, LogSegmentEntryRea
             // if the reader is already caught up, let's fail the reader immediately
             // as we need to pull the latest metadata of this log segment.
             completeExceptionally(new BKTransmitException("Failed to open ledger for reading log segment "
-                            + getSegment(), rc),
+                            + getSegment(), ex),
                     true);
             return;
         }

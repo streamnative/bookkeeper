@@ -44,6 +44,7 @@ import org.apache.distributedlog.exceptions.AlreadyClosedException;
 import org.apache.distributedlog.exceptions.DLInterruptedException;
 import org.apache.distributedlog.net.NetUtils;
 import org.apache.distributedlog.util.ConfUtils;
+import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -222,6 +223,78 @@ public class BookKeeperClient {
                     }
                 }, null, Collections.emptyMap());
         return promise;
+    }
+
+    public CompletableFuture<LedgerHandle> openLedger(long lid) {
+        BookKeeper bk;
+        try {
+            bk = get();
+
+            CompletableFuture<LedgerHandle> promise = new CompletableFuture<>();
+            // the bookkeeper client uses a different zk session to the session used
+            // to read the list of segments. Because of this, it is possible that the bk
+            // client session has an older view of the data, and a ledger visible to the
+            // dlog session is not yet visible to the bk session. For this reason, force
+            // the zk session to sync with the leader before trying to open a ledger.
+            zkc.get().sync("/", (rc, path, ctx) -> {
+                    if (rc == KeeperException.Code.OK.intValue()) {
+                        bk.asyncOpenLedger(lid, BookKeeper.DigestType.CRC32, passwd,
+                                           (rc2, lh, ctx2) -> {
+                                               if (BKException.Code.OK == rc2) {
+                                                   promise.complete(lh);
+                                               } else {
+                                                   promise.completeExceptionally(BKException.create(rc2));
+                                               }
+                                           }, null);
+                    } else {
+                        LOG.error("Error syncing to ZK leader",
+                                  KeeperException.create(KeeperException.Code.get(rc)));
+                        promise.completeExceptionally(new BKException.ZKException());
+                    }
+                }, null);
+            return promise;
+        } catch (IOException ioe) {
+            return FutureUtils.exception(ioe);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            return FutureUtils.exception(ie);
+        }
+    }
+
+    public CompletableFuture<LedgerHandle> openLedgerNoRecovery(long lid) {
+        BookKeeper bk;
+        try {
+            bk = get();
+
+            CompletableFuture<LedgerHandle> promise = new CompletableFuture<>();
+            // the bookkeeper client uses a different zk session to the session used
+            // to read the list of segments. Because of this, it is possible that the bk
+            // client session has an older view of the data, and a ledger visible to the
+            // dlog session is not yet visible to the bk session. For this reason, force
+            // the zk session to sync with the leader before trying to open a ledger.
+            zkc.get().sync("/", (rc, path, ctx) -> {
+                    if (rc == KeeperException.Code.OK.intValue()) {
+                        bk.asyncOpenLedgerNoRecovery(lid, BookKeeper.DigestType.CRC32, passwd,
+                                                     (rc2, lh, ctx2) -> {
+                                                         if (BKException.Code.OK == rc2) {
+                                                             promise.complete(lh);
+                                                         } else {
+                                                             promise.completeExceptionally(BKException.create(rc2));
+                                                         }
+                                                     }, null);
+                    } else {
+                        LOG.error("Error syncing to ZK leader",
+                                  KeeperException.create(KeeperException.Code.get(rc)));
+                        promise.completeExceptionally(new BKException.ZKException());
+                    }
+                }, null);
+            return promise;
+        } catch (IOException ioe) {
+            return FutureUtils.exception(ioe);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            return FutureUtils.exception(ie);
+        }
     }
 
     public CompletableFuture<Void> deleteLedger(long lid,

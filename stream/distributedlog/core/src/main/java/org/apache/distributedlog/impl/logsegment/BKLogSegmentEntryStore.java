@@ -17,8 +17,6 @@
  */
 package org.apache.distributedlog.impl.logsegment;
 
-import static com.google.common.base.Charsets.UTF_8;
-
 import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
 import org.apache.bookkeeper.client.AsyncCallback;
@@ -56,25 +54,9 @@ import org.slf4j.LoggerFactory;
  */
 public class BKLogSegmentEntryStore implements
         LogSegmentEntryStore,
-        AsyncCallback.OpenCallback,
         AsyncCallback.DeleteCallback {
 
     private static final Logger logger = LoggerFactory.getLogger(BKLogSegmentEntryReader.class);
-
-    private static class OpenReaderRequest {
-
-        private final LogSegmentMetadata segment;
-        private final long startEntryId;
-        private final CompletableFuture<LogSegmentEntryReader> openPromise;
-
-        OpenReaderRequest(LogSegmentMetadata segment,
-                          long startEntryId) {
-            this.segment = segment;
-            this.startEntryId = startEntryId;
-            this.openPromise = new CompletableFuture<LogSegmentEntryReader>();
-        }
-
-    }
 
     private static class DeleteLogSegmentRequest {
 
@@ -88,7 +70,6 @@ public class BKLogSegmentEntryStore implements
 
     }
 
-    private final byte[] passwd;
     private final ZooKeeperClient zkc;
     private final BookKeeperClient bkc;
     private final OrderedScheduler scheduler;
@@ -111,7 +92,6 @@ public class BKLogSegmentEntryStore implements
         this.dynConf = dynConf;
         this.zkc = zkc;
         this.bkc = bkc;
-        this.passwd = conf.getBKDigestPW().getBytes(UTF_8);
         this.scheduler = scheduler;
         this.allocator = allocator;
         this.statsLogger = statsLogger;
@@ -194,50 +174,36 @@ public class BKLogSegmentEntryStore implements
         } catch (IOException e) {
             return FutureUtils.exception(e);
         }
-        OpenReaderRequest request = new OpenReaderRequest(segment, startEntryId);
+
+        CompletableFuture<LedgerHandle> ledgerF;
         if (segment.isInProgress()) {
-            bk.asyncOpenLedgerNoRecovery(
-                    segment.getLogSegmentId(),
-                    BookKeeper.DigestType.CRC32,
-                    passwd,
-                    this,
-                    request);
+            ledgerF = bkc.openLedgerNoRecovery(segment.getLogSegmentId());
         } else {
-            bk.asyncOpenLedger(
-                    segment.getLogSegmentId(),
-                    BookKeeper.DigestType.CRC32,
-                    passwd,
-                    this,
-                    request);
-        }
-        return request.openPromise;
-    }
-
-    @Override
-    public void openComplete(int rc, LedgerHandle lh, Object ctx) {
-        OpenReaderRequest request = (OpenReaderRequest) ctx;
-        if (BKException.Code.OK != rc) {
-            FutureUtils.completeExceptionally(
-                    request.openPromise,
-                    new BKTransmitException("Failed to open ledger handle for log segment " + request.segment, rc));
-            return;
-        }
-        // successfully open a ledger
-        try {
-            LogSegmentEntryReader reader = new BKLogSegmentEntryReader(
-                    request.segment,
-                    lh,
-                    request.startEntryId,
-                    bkc.get(),
-                    scheduler,
-                    conf,
-                    statsLogger,
-                    failureInjector);
-            FutureUtils.complete(request.openPromise, reader);
-        } catch (IOException e) {
-            FutureUtils.completeExceptionally(request.openPromise, e);
+            ledgerF = bkc.openLedger(segment.getLogSegmentId());
         }
 
+        CompletableFuture<LogSegmentEntryReader> promise = new CompletableFuture<>();
+        ledgerF.thenApply((ledger) -> {
+                return new BKLogSegmentEntryReader(
+                        segment,
+                        ledger,
+                        startEntryId,
+                        bkc,
+                        scheduler,
+                        conf,
+                        statsLogger,
+                        failureInjector);
+            })
+            .whenComplete((reader, exception) -> {
+                    if (exception != null) {
+                        promise.completeExceptionally(
+                                new BKTransmitException(
+                                        "Failed to open ledger handle for log segment " + segment, exception));
+                    } else {
+                        promise.complete(reader);
+                    }
+                });
+        return promise;
     }
 
     @Override
@@ -249,39 +215,27 @@ public class BKLogSegmentEntryStore implements
         } catch (IOException e) {
             return FutureUtils.exception(e);
         }
-        final CompletableFuture<LogSegmentRandomAccessEntryReader> openPromise =
-                new CompletableFuture<LogSegmentRandomAccessEntryReader>();
-        AsyncCallback.OpenCallback openCallback = new AsyncCallback.OpenCallback() {
-            @Override
-            public void openComplete(int rc, LedgerHandle lh, Object ctx) {
-                if (BKException.Code.OK != rc) {
-                    FutureUtils.completeExceptionally(
-                            openPromise,
-                            new BKTransmitException("Failed to open ledger handle for log segment " + segment, rc));
-                    return;
-                }
-                LogSegmentRandomAccessEntryReader reader = new BKLogSegmentRandomAccessEntryReader(
-                        segment,
-                        lh,
-                        conf);
-                FutureUtils.complete(openPromise, reader);
-            }
-        };
+
+        CompletableFuture<LedgerHandle> ledgerF;
         if (segment.isInProgress() && !fence) {
-            bk.asyncOpenLedgerNoRecovery(
-                    segment.getLogSegmentId(),
-                    BookKeeper.DigestType.CRC32,
-                    passwd,
-                    openCallback,
-                    null);
+            ledgerF = bkc.openLedgerNoRecovery(segment.getLogSegmentId());
         } else {
-            bk.asyncOpenLedger(
-                    segment.getLogSegmentId(),
-                    BookKeeper.DigestType.CRC32,
-                    passwd,
-                    openCallback,
-                    null);
+            ledgerF = bkc.openLedger(segment.getLogSegmentId());
         }
-        return openPromise;
+
+        CompletableFuture<LogSegmentRandomAccessEntryReader> promise = new CompletableFuture<>();
+        ledgerF.thenApply((ledger) -> {
+                return new BKLogSegmentRandomAccessEntryReader(segment, ledger, conf);
+            })
+            .whenComplete((reader, exception) -> {
+                    if (exception != null) {
+                        promise.completeExceptionally(
+                                new BKTransmitException(
+                                        "Failed to open ledger handle for log segment " + segment, exception));
+                    } else {
+                        promise.complete(reader);
+                    }
+                });
+        return promise;
     }
 }

@@ -17,6 +17,8 @@
  */
 package org.apache.distributedlog.exceptions;
 
+import org.apache.bookkeeper.client.BKException;
+
 /**
  * Thrown when the send to bookkeeper fails.
  *
@@ -27,6 +29,15 @@ public class BKTransmitException extends DLException {
     private static final long serialVersionUID = -5796100450432076091L;
 
     final int bkRc;
+
+    public BKTransmitException(String message, Throwable t) {
+        super(StatusCode.BK_TRANSMIT_ERROR, message, t);
+        if (t instanceof BKException) {
+            bkRc = ((BKException)t).getCode();
+        } else {
+            bkRc = BKException.Code.UnexpectedConditionException;
+        }
+    }
 
     public BKTransmitException(String message, int bkRc) {
         super(StatusCode.BK_TRANSMIT_ERROR, message + " : " + bkRc);
