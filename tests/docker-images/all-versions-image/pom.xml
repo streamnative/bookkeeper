@@ -19,7 +19,7 @@
   <parent>
     <groupId>org.apache.bookkeeper.tests</groupId>
     <artifactId>docker-images</artifactId>
-    <version>4.7.3-streamlio-1</version>
+    <version>4.7.3-sn-1</version>
   </parent>
   <modelVersion>4.0.0</modelVersion>
   <groupId>org.apache.bookkeeper.tests</groupId>
