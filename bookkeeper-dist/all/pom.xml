@@ -55,11 +55,6 @@
       <artifactId>prometheus-metrics-provider</artifactId>
       <version>${project.version}</version>
     </dependency>
-    <dependency>
-      <groupId>org.apache.bookkeeper.stats</groupId>
-      <artifactId>twitter-finagle-provider</artifactId>
-      <version>${project.version}</version>
-    </dependency>
 
     <!-- bookkeeper.http -->
     <dependency>
