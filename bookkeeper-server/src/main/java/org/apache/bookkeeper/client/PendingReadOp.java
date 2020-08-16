@@ -433,6 +433,8 @@ class PendingReadOp implements ReadEntryCallback, SafeRunnable {
 
             if (!readsOutstanding()) {
                 sendNextRead();
+            } else {
+                fail(rc);
             }
         }
 
