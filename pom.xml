@@ -144,7 +144,7 @@
     <jmh.version>1.19</jmh.version>
     <jmock.version>2.8.2</jmock.version>
     <jna.version>3.2.7</jna.version>
-    <junit.version>4.12</junit.version>
+    <junit.version>4.13.1</junit.version>
     <libthrift5.version>0.5.0-1</libthrift5.version>
     <libthrift9.version>0.12.0</libthrift9.version>
     <lombok.version>1.18.10</lombok.version>
